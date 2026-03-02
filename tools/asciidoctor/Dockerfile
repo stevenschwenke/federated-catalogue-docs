@@ -16,7 +16,9 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 RUN apk add --no-cache nodejs npm chromium font-noto \
     && npm install -g @mermaid-js/mermaid-cli \
     && npm cache clean --force \
-    && printf '{\n  "executablePath": "/usr/bin/chromium-browser",\n  "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]\n}\n' \
+    && printf '{\n  "executablePath": "/usr/bin/chromium-browser",\n'\
+'  "args": ["--no-sandbox", "--disable-gpu",'\
+' "--disable-dev-shm-usage"]\n}\n'\
        > /usr/local/share/puppeteer-config.json \
     && REAL_MMDC=$(which mmdc) \
     && mv "$REAL_MMDC" "${REAL_MMDC}.real" \
