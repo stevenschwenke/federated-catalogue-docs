@@ -15,6 +15,8 @@ This chapter first defines a generic workflow for write operations (<<_generic_c
 
 === Generic Control Flow for write operations
 
+The write flow branches depending on whether the uploaded content is RDF or non-RDF. RDF content goes through the full verification pipeline and is indexed in the graph database. Non-RDF content bypasses verification and graph storage entirely.
+
 [mermaid, width=2000]
 ....
 sequenceDiagram
@@ -22,17 +24,27 @@ sequenceDiagram
     actor User
     participant Auth as Auth*
     participant API
+    participant RdfDetector
     participant Verification
     participant SDStore as SD-Storage
     participant GraphDB as Graph-Database
     User ->> + Auth:Authenticate
     Auth -->> - User:OK
-    User ->> + API:OK
-    API ->> + Verification:Verify
-    Verification -->> - API:OK
-    API ->> + SDStore:Store
-    SDStore -->> + GraphDB:Update
-    SDStore -->> - API:OK
+    User ->> + API:Upload content
+    API ->> + RdfDetector:isRdf(contentType, content)
+    RdfDetector -->> - API:true / false
+    alt RDF content
+        API ->> + Verification:Verify
+        Verification -->> - API:OK
+        API ->> + SDStore:storeSelfDescription
+        SDStore ->> + GraphDB:addClaims
+        GraphDB -->> - SDStore:OK
+        SDStore -->> - API:OK
+    else Non-RDF content
+        API ->> + SDStore:storeAsset
+        Note right of SDStore: No verification, no graph
+        SDStore -->> - API:OK
+    end
     API -->> - User:OK
 ....
 
@@ -555,6 +567,8 @@ sequenceDiagram
 
 The basic flow of creating and updating an offering is identical. The distinction cannot be made until the SD-Storage receives the Self-Description metadata and checks if it already exists.
 
+The verification steps shown below are configuration-dependent. In the default profile, only syntax and semantic verification are active. In the strict profile, all steps (including schema validation and signature verification) are executed. See <<_verification_profiles>> for details.
+
 [mermaid, width=2000]
 ....
 sequenceDiagram
@@ -571,8 +585,12 @@ sequenceDiagram
     VerificationService --> VerificationService:[Verify Syntax]
     VerificationService --> VerificationService:[Verify Semantic]
     VerificationService --> VerificationService:[Extract SD Type]
-    Note over VerificationService: Schema validation disabled by default (verifySchema=false)
-    VerificationService --> VerificationService:[Verify Signatures]
+    opt schema validation enabled
+        VerificationService --> VerificationService:[Verify Schema]
+    end
+    opt signature verification enabled
+        VerificationService --> VerificationService:[Verify Signatures]
+    end
     VerificationService --> VerificationService:[Extract Participant]
     VerificationService --> VerificationService:[Extract Claims]
     VerificationService -->> - API:VerificationResult
@@ -587,6 +605,43 @@ sequenceDiagram
     end
 ....
 
+
+==== Adding a Non-RDF Asset
+
+Non-RDF assets (PDFs, plain JSON, YAML, images, binary files) are uploaded through the same `POST /self-descriptions` endpoint using `multipart/form-data` or `application/octet-stream`. The `RdfDetector` classifies the content; non-RDF assets bypass verification and graph storage entirely.
+
+[mermaid, width=2000]
+....
+sequenceDiagram
+    autonumber
+    actor User
+    participant API as AssetUploadController
+    participant Service as AssetUploadService
+    participant RdfDetector
+    participant SDStore as SD-Storage
+    participant FileStore as Asset FileStore
+    
+    User ->> + API:POST /self-descriptions (multipart/form-data or application/octet-stream)
+    API ->> + Service:processUpload(bytes, contentType, filename)
+    Service ->> + RdfDetector:isRdf(contentType, bytes)
+    RdfDetector -->> - Service:false
+    Service ->> Service:computeSHA256(bytes)
+    Service ->> Service:buildMetadata(hash, contentType, fileSize, participantId)
+    Service ->> + SDStore:storeAsset(metadata, filename)
+    SDStore ->> SDStore:generateSubjectId(prefix + hash)
+    SDStore ->> SDStore:insertMetadata(PostgreSQL)
+    SDStore ->> + FileStore:storeFile(hash, contentAccessor)
+    FileStore -->> - SDStore:OK
+    SDStore -->> - Service:storedMetadata
+    Service -->> - API:SelfDescriptionMetadata
+    API -->> - User:201 Created (metadata with contentType, fileSize, id)
+....
+
+**Step 5-6:** `RdfDetector` checks the MIME type against the configured allowlist and, for `application/json`, inspects content for a JSON-LD `@context` pattern.
+
+**Step 9:** `storeAsset` generates a content-addressable identifier (`urn:asset:sha256:<hash>`) if no subject ID is provided. If an asset with the same hash already exists, HTTP 409 (Conflict) is returned.
+
+**Step 11:** The raw bytes are written to the `assetFileStore`, not the schema/context File Store.
 
 ==== Updating a Self-Description for an Offering
 
@@ -692,21 +747,29 @@ sequenceDiagram
 [mermaid, width=2000]
 ....
 sequenceDiagram
+    autonumber
     actor User
     participant Auth as Auth*
-    participant API
-    participant SchemaStore
+    participant API as SchemasService
+    participant SchemaStore as SchemaStoreImpl
+    participant Filter as ProtectedNamespaceFilter
     User ->> + Auth:Authenticate
     Auth -->> - User:OK
     User ->> + API:POST /schemas
     API ->> + SchemaStore:addSchema(schemaFile)
-    SchemaStore ->> SchemaStore:Analyse Type
-    SchemaStore ->> SchemaStore:Extract or Generate ID
-    SchemaStore ->> SchemaStore:Extract defined URLs
-    SchemaStore ->> SchemaStore:Check Duplicate URLs
-    SchemaStore ->> SchemaStore:Store Schema
-    SchemaStore -->> - API:SchemaID
-    API -->> - User:SchemaID
+    SchemaStore ->> SchemaStore:[Parse RDF — JSON-LD / RDF-XML / TTL]
+    SchemaStore ->> + Filter:filterModel(model, "schema import")
+    Filter -->> - SchemaStore:FilteredModel {model, warning}
+    Note right of Filter: Triples using fcmeta: namespace<br/>are removed; warning captured
+    SchemaStore ->> SchemaStore:[Detect Schema Type — SHAPE / ONTOLOGY / VOCABULARY]
+    SchemaStore ->> SchemaStore:[Extract or Generate ID]
+    SchemaStore ->> SchemaStore:[Extract defined URLs]
+    SchemaStore ->> SchemaStore:[Check Duplicate URLs]
+    SchemaStore ->> SchemaStore:[Store Schema in DB]
+    SchemaStore -->> - API:SchemaStoreResult {id, warning}
+    API ->> API:[Convert to SchemaResult {id, warnings}]
+    Note right of API: Server layer maps core result<br/>to generated API model
+    API -->> - User:SchemaResult {id, warnings}
 ....
 
 
@@ -715,25 +778,32 @@ sequenceDiagram
 [mermaid, width=2000]
 ....
 sequenceDiagram
+    autonumber
     actor User
-    participant API
     participant Auth as Auth*
-    participant SchemaStore
+    participant API as SchemasService
+    participant SchemaStore as SchemaStoreImpl
+    participant Filter as ProtectedNamespaceFilter
     participant Verification as VerificationService
     participant Revalidation as RevalidationService
     User ->> + API:PUT /schemas/{ID}
-    API ->> + Auth:Athenticate
+    API ->> + Auth:Authenticate
     Auth -->> - API:OK
     API ->> + SchemaStore:updateSchema(ID, schema)
-    SchemaStore ->> SchemaStore:Extract type, ID, URLs
-    SchemaStore ->> SchemaStore:Verify ID == ID
-    SchemaStore ->> SchemaStore:Verify type == old.type
-    SchemaStore ->> SchemaStore:Remove old schema
-    SchemaStore ->> SchemaStore:Check Duplicate URLs
-    SchemaStore ->> SchemaStore:Store Schema
+    SchemaStore ->> SchemaStore:[Parse RDF — JSON-LD / RDF-XML / TTL]
+    SchemaStore ->> + Filter:filterModel(model, "schema import")
+    Filter -->> - SchemaStore:FilteredModel {model, warning}
+    Note right of Filter: Triples using fcmeta: namespace<br/>are removed; warning captured
+    SchemaStore ->> SchemaStore:[Detect Schema Type — SHAPE / ONTOLOGY / VOCABULARY]
+    SchemaStore ->> SchemaStore:[Extract or Generate ID]
+    SchemaStore ->> SchemaStore:[Verify ID matches existing schema ID]
+    SchemaStore ->> SchemaStore:[Extract defined URLs]
+    SchemaStore ->> SchemaStore:[Check Duplicate URLs]
+    SchemaStore ->> SchemaStore:[Update Schema in DB]
     activate Revalidation
-    SchemaStore -->> -API:OK
-    API -->> - User:OK
+    SchemaStore -->> - API:SchemaStoreResult {id, warning}
+    API ->> API:[Convert to SchemaResult {id, warnings}]
+    API -->> - User:SchemaResult {id, warnings}
     loop For Each SD
         Revalidation ->> + Verification:Validate SDs
         Verification -->> - Revalidation:Result
@@ -751,15 +821,17 @@ When deleting a schema Self-Descriptions do not need to be re-verified, since a 
 [mermaid, width=2000]
 ....
 sequenceDiagram
+    autonumber
     actor User
-    participant API
     participant Auth as Auth*
-    participant SchemaStore as SchemaStore
+    participant API as SchemasService
+    participant SchemaStore as SchemaStoreImpl
     User ->> + API:DELETE /schemas/{schemaId}
     API ->> + Auth:Authenticate
     Auth -->> - API:OK
     API ->> + SchemaStore:deleteSchema(schemaId)
-    SchemaStore ->> SchemaStore:Remove schema
+    SchemaStore ->> SchemaStore:[Remove schema from DB]
+    SchemaStore ->> SchemaStore:[Invalidate composite schema cache]
     SchemaStore -->> - API:OK
     API -->> - User:OK
 ....
@@ -771,7 +843,7 @@ When calling `GET /query` a HTML page with a query input form is displayed.
 
 ==== Query the catalogue
 
-The query endpoint uses the `Content-Type` header to select the query language: `application/opencypher-query` for openCypher (Neo4j backend) or `application/sparql-query` for SPARQL-star (Fuseki backend). The request body is raw query text (not a JSON wrapper). Queries in a language not supported by the active backend are rejected with HTTP 415 (Unsupported Media Type), including a message that names the active backend, the supported language and the expected `Content-Type`. When the graph store is disabled (`graphstore.impl=dummy`), queries are rejected with HTTP 503 (Service Unavailable).
+The query endpoint uses the `Content-Type` header to select the query language: `application/opencypher-query` for openCypher (Neo4j backend) or `application/sparql-query` for SPARQL-star (Fuseki backend). The request body is raw query text (not a JSON wrapper). Queries in a language not supported by the active backend are rejected with HTTP 415 (Unsupported Media Type), including a message that names the active backend, the supported language and the expected `Content-Type`. When the graph store is disabled (`graphstore.impl=none`), queries are rejected with HTTP 503 (Service Unavailable).
 
 Only read queries are allowed. Write queries (e.g., `CREATE`/`DELETE` in openCypher, `INSERT`/`DELETE` in SPARQL) are rejected with HTTP 500.
 
@@ -828,6 +900,8 @@ When calling `GET /verifications/self-descriptions` a static HTML page is return
 
 ==== Request verification for a Self-Description
 
+The `/verification` endpoint accepts optional query parameters to override the server-level defaults per request: `verifySemantics`, `verifySchema`, `verifyVPSignature`, `verifyVCSignature` (all boolean, defaulting to the server configuration). This allows callers to test specific verification aspects in isolation.
+
 [mermaid, width=2000]
 ....
 sequenceDiagram
@@ -835,23 +909,25 @@ sequenceDiagram
     actor User
     participant API
     participant VerificationService
-    User ->> + API:POST /verifications/self-descriptions
+    User ->> + API:POST /verifications/self-descriptions<br>(?verifySchema=...&verifyVPSignature=...&verifyVCSignature=...)
     API ->> + VerificationService:verifySelfDescription(sd, verifySemantics, verifySchema, verifyVPSig, verifyVCSig)
-    VerificationService --> VerificationService:[Verify Syntax]
-    opt verifySemantics (default true)
-        VerificationService --> VerificationService:[Verify Semantic]
-        VerificationService ->> VerificationService:[Extract SD Type]
+    VerificationService ->> VerificationService: [Verify Syntax]
+    opt verifySemantics [default true]
+        VerificationService ->> VerificationService: [Verify Semantic]
+        VerificationService ->> VerificationService: [Extract SD Type]
     end
-    opt verifySchema (default false)
-        VerificationService ->> SchemaValidationService:[Validate Claims vs SHACL]
-        SchemaValidationService -->> VerificationService:SemanticValidationResult
+    opt verifySchema [default false]
+        VerificationService ->> SchemaValidationService: [Validate Claims vs SHACL]
+        SchemaValidationService -->> VerificationService: SemanticValidationResult
     end
-    opt verifyVPSig / verifyVCSig (default true)
-        VerificationService --> VerificationService:[Verify Signatures]
+    opt signature verification [verifyVPSig / verifyVCSig - default false]
+        VerificationService ->> VerificationService: [Verify Signatures]
     end
     VerificationService ->> VerificationService:[Extract Claims]
-    VerificationService -->> - API:VerificationResult
-    API -->> -User: VerificationResult
+    VerificationService ->> VerificationService:[Filter Protected Namespace (fcmeta:)]
+    Note right of VerificationService: Filtered triples produce<br/>warnings in VerificationResult
+    VerificationService -->> - API:VerificationResult (incl. warnings)
+    API -->> -User: VerificationResult (incl. warnings)
 ....
 
 === Detailed sub-scenarios
@@ -886,6 +962,29 @@ sequenceDiagram
         SDStore -->> - Service: [Ok, if no exception]
 ....
 
+==== Store Non-RDF Assets to the Self-Description store
+
+This sequence diagram shows the flow when storing a non-RDF asset. Unlike Self-Descriptions, assets skip graph database interaction entirely. The content is stored in the asset File Store and metadata (including content type, file size, and original filename) is stored in the Metadata Store.
+
+[mermaid, width=2000]
+....
+sequenceDiagram
+    autonumber
+    participant Service
+    participant SDStore as SD-Storage
+    participant MetaData as MetaData Store
+    participant FileStore as Asset File Store
+    Service ->> + SDStore: storeAsset(metadata, filename)
+    SDStore ->> SDStore: generateSubjectId(prefix + hash)
+    SDStore ->> + MetaData: insertMetadata(hash, subjectId,<br>contentType, fileSize, filename)
+    MetaData -->> - SDStore: OK
+    SDStore ->> + FileStore: storeFile(hash, contentAccessor)
+    FileStore -->> - SDStore: OK
+    SDStore -->> - Service: storedMetadata
+....
+
+NOTE: No `addClaims` or `deleteClaims` calls to the Graph Database occur for non-RDF assets. Assets are invisible to SPARQL/openCypher queries and can only be retrieved via the metadata filter endpoints.
+
 ==== Periodic Validation of Signatures
 This sequence diagram shows the detailed flow, when checking the expiration date of the signatures of all Self-Descriptions.  This sequence is to be periodically triggered.
 
@@ -913,38 +1012,45 @@ sequenceDiagram
 
 ==== Verify Self-Description
 
-The verification of SDs consists of four parts (syntactic, semantic, schema, and trust verification).
-Besides verifying the SD additional tasks are executed (e.g., parsing, claim extraction).
+The verification of SDs consists of up to four stages, each independently configurable (see <<_verification_profiles>>).
+Besides verifying the SD, additional tasks are executed (e.g., parsing, claim extraction).
 
-`VerificationServiceImpl` acts as a thin Context in the Strategy pattern: it resolves per-request verification toggles and delegates all verification and claim extraction logic to a `VerificationStrategy` (currently `CredentialVerificationStrategy`). The strategy contains the full VP/VC parsing, semantic validation, schema validation, signature verification, and claim extraction logic. See <<_verification_strategy_pattern>> for details.
+`VerificationServiceImpl` acts as a thin Context in the Strategy pattern: it resolves per-request verification toggles and delegates all verification and claim extraction logic to a `VerificationStrategy` (currently `CredentialVerificationStrategy`). The strategy contains the full VP/VC parsing, semantic validation, schema validation, signature verification, claim extraction, and protected namespace filtering logic. If any triples referencing the `fcmeta:` namespace are filtered, a user-visible warning is included in the `VerificationResult`. See <<_verification_strategy_pattern>> for details.
+**Syntactic validation** is always active. The SD is parsed as JSON-LD and validated against the Verifiable Credential data model. Any syntactic issue will raise an error here.
 
-The syntactic verification is done by parsing the SD.
-Any syntactic issue will rise there.
-The semantic verification is conducted after the parsing of the Self-Description.
+**Semantic verification** validates the credential subject `@type` against the loaded ontologies. This is active by default and catches type mismatches early.
 
+**Schema validation ** (when enabled) checks the uploaded Self-Descriptions against a composite schema of type SHACL.
+If a Self-Description does not conform to the composite schema, a verification exception is thrown with a message containing the validation report. In that case, the verification process does not proceed, and claims are not extracted.
 Automatic schema validation against stored SHACL shapes has been **disabled in the upload verification flow**. Self-Descriptions are accepted regardless of their conformity to stored SHACL shapes. On-demand schema validation of stored assets against specific SHACL shapes is available through the dedicated `SchemaValidationService` (see <<_schema_validation_service>>).
 
 NOTE: For backward compatibility, automatic schema validation during upload can be re-enabled via the configuration property `federated-catalogue.verification.schema=true`.
 
-The trust verification checks all proofs in the SD if the signature, the offered key and the content match.
-When Gaia-X Trust Framework validation is enabled, the key is additionally validated against the Gaia-X Trust Anchor Registry to verify a valid trust anchor chain.  When this setting is disabled (the default), signature verification still ensures that signatures are valid and match the content.
+**Cryptographic verification (trust verification)** (when enabled) checks all proofs in the SD: whether the signature, the offered key, and the content match.
 When checking whether the proofs match the Self-Description or the contained Verifiable Credentials, the JSON object is normalized using the Universal RDF Dataset Canonicalization Algorithm URDNA2015footnote:[https://w3c-ccg.github.io/rdf-dataset-canonicalization/spec/#dfn-urdna2015[RDF Dataset Canonicalization. A Standard RDF Dataset Canonicalization Algorithm. W3C, Final Community Group Report 15 October 2022]] as specified by Gaia-X.
 This allows a robust signing of Self-Descriptions.
 The normalization algorithm extracts the RDF graph from the claim to perform the signing.
 Thus, the Self-Description can be changed (in some specific manners) while the signature remains.
 
+When the Gaia-X Trust Framework is additionally enabled, the key is validated against the Gaia-X Trust Anchor Registry to verify a valid trust anchor chain via the `x5u` certificate URL. Without the trust framework, signature verification only proves internal consistency (that a DID controls a key) but cannot establish identity or trust — this is why signature verification is disabled in the default profile (see ADR 3).
+
 Afterwards the claims are extracted from the Self-Description.
 Further, it is checked if all Credential Subjects in the Self-Description affect the same subject.
 
-The flowchart below shows the steps within the verification sequence.
+The flowchart below shows the steps within the verification sequence. Configuration-dependent steps are shown with dashed borders.
+
 [mermaid, width=2000]
 ....
 sequenceDiagram
     VerificationService --> VerificationService:[Verify Syntax]
     VerificationService --> VerificationService:[Verify Semantic]
     VerificationService ->> VerificationService:[Extract SD Type]
-    Note over VerificationService: Schema validation disabled by default
-    VerificationService --> VerificationService:[Verify Signatures]
+    opt schema validation enabled
+        VerificationService --> VerificationService:[Verify Schema]
+    end
+    opt signature verification enabled
+        VerificationService --> VerificationService:[Verify Signatures]
+    end
     VerificationService ->> VerificationService:[Extract Claims]
     VerificationService ->> VerificationService:[Extract Participant]
 ....
@@ -960,16 +1066,18 @@ flowchart LR
         twoA([Validate against JSON-LD Grammar])
         twoA --> twoB(Validate against Verifiable Credential standard)
     end
-    subgraph three [Schema Validation]
+    subgraph three [Schema Validation — configurable]
         direction TB
-        threeA{{verification.schema <br> enabled?}}
+        threeA{{Schema validation<br>enabled?}}
         threeA --> |yes| threeB([Extract Claims])
-        threeB --> threeC(Check claims vs SHACL <br> via SchemaValidationService)
-        threeA --> |no — default| threeD([Skip schema validation])
+        threeB --> threeC(Check claims vs SHACL)
+        threeA --> |no| threeD([Skip])
     end
-    subgraph four [Trust Verification]
+    subgraph four [Trust Verification — configurable]
         direction TB
-        fourA(Check if signatures exist, <br> if signatures are in expected format and <br> extract signatures)
+        fourPre{{Signature verification<br>enabled?}}
+        fourPre --> |no| fourSkip([Skip — no cryptographic check])
+        fourPre --> |yes| fourA(Check if signatures exist, <br> if signatures are in expected format and <br> extract signatures)
         fourA --> fourB(Check if signatures match)
         fourB --> |For all <br> Verifiable presentation <br> All verifiable credentials| fourA
         fourB --> fourC(Check if public key valid)
@@ -982,7 +1090,13 @@ flowchart LR
     one --> two
     two --> three
     three --> four
-    subgraph five [Legend]
+    four --> five
+    subgraph five [Claim Extraction]
+        direction TB
+        fiveA([Extract Claims from VP])
+        fiveA --> fiveB(Filter protected namespace<br>via ProtectedNamespaceFilter)
+    end
+    subgraph six [Legend]
         direction TB
         A(Throws an error if check fails)
         B([Operation on SD])
