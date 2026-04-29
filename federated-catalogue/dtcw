@@ -202,7 +202,7 @@ get_available_environments() {
     # The local environment is always available - even if docToolchain is not installed
     local envs=" local"
 
-    # 'sdk' is provided a bash founction - thus command doesn't work
+    # 'sdk' is provided a bash function - thus command doesn't work
     if [ -n "${SDKMAN_DIR:-}" ] && [ -s "${SDKMAN_DIR}/bin/sdkman-init.sh" ]; then
         envs+=" sdk"
     fi
