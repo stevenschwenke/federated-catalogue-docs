@@ -462,7 +462,7 @@ download_file() {
 assert_java_version_supported() {
     # Defines the order in which Java is searched.
     if [ -d "${DTC_JAVA_HOME}" ]; then
-            echo "Caution: Your JAVA_HOME setting is overriden by DTCs own JDK install (for this execution)"
+            echo "Caution: Your JAVA_HOME setting is overridden by DTCs own JDK install (for this execution)"
             if [ -d "${DTC_JAVA_HOME}/Contents" ]; then
                 # JDK for MacOS have a different structure
                 JAVA_HOME="${DTC_JAVA_HOME}/Contents/Home"
