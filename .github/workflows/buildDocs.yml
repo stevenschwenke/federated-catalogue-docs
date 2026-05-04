@@ -15,6 +15,12 @@ jobs:
         with:
           lfs: true
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -23,21 +29,24 @@ jobs:
       - name: Install Mermaid CLI
         run: npm install -g @mermaid-js/mermaid-cli
 
-      - name: Verify Mermaid CLI installation
+      - name: Verify Mermaid CLI installation and create symlink
         run: |
           which mmdc
           mmdc --version
           echo "PATH=$PATH"
+          sudo ln -sf $(which mmdc) /usr/local/bin/mmdc
+          which mmdc
+          ls -la /usr/local/bin/mmdc
 
       - name: Generate HTML Documentation
         run: |
           cd ./federated-catalogue
-          ./dtcw generateHTML
+          ./dtcw local generateHTML
 
       - name: Generate PDF Documentation
         run: |
           cd ./federated-catalogue
-          ./dtcw generatePDF
+          ./dtcw local generatePDF
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
