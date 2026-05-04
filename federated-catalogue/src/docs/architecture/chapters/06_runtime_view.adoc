@@ -1018,7 +1018,7 @@ sequenceDiagram
     SchemaStore ->> SchemaStore:[Parse RDF - JSON-LD / RDF-XML / TTL]
     SchemaStore ->> + Filter:filterModel(model, "schema import")
     Filter -->> - SchemaStore:FilteredModel {model, warning}
-    Note right of Filter: Triples using fcmeta namespace are removed; warning captured
+    Note right of Filter: Triples using fcmeta namespace are removed, warning captured
     SchemaStore ->> SchemaStore:[Detect Schema Type - SHAPE / ONTOLOGY / VOCABULARY]
     SchemaStore ->> SchemaStore:[Extract or Generate ID]
     SchemaStore ->> SchemaStore:[Extract defined URLs]
@@ -1085,7 +1085,7 @@ sequenceDiagram
     SchemaStore ->> SchemaStore:[Parse RDF - JSON-LD / RDF-XML / TTL]
     SchemaStore ->> + Filter:filterModel(model, "schema import")
     Filter -->> - SchemaStore:FilteredModel {model, warning}
-    Note right of Filter: Triples using fcmeta namespace are removed; warning captured
+    Note right of Filter: Triples using fcmeta namespace are removed, warning captured
     SchemaStore ->> SchemaStore:[Detect Schema Type - SHAPE / ONTOLOGY / VOCABULARY]
     SchemaStore ->> SchemaStore:[Extract or Generate ID]
     SchemaStore ->> SchemaStore:[Verify ID matches existing schema ID]
