@@ -38,6 +38,11 @@ jobs:
           which mmdc
           ls -la /usr/local/bin/mmdc
 
+      - name: Install docToolchain locally
+        run: |
+          cd ./federated-catalogue
+          ./dtcw local install doctoolchain
+
       - name: Generate HTML Documentation
         run: |
           cd ./federated-catalogue
