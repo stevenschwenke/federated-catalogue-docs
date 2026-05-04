@@ -688,7 +688,7 @@ sequenceDiagram
     API ->> + VerificationService:verifyOfferingCredential(credential)
     VerificationService -->> - API:CredentialVerificationResult
     API ->> + AssetStore:storeCredential(AssetMetadata, CredentialVerificationResult)
-    Note right of AssetStore: In-place UPDATE — Envers records<br/>previous state in assets_aud
+    Note right of AssetStore: In-place UPDATE - Envers records previous state in assets_aud
     AssetStore -->> - API:OK
     API -->> - User:200 Asset
 ....
@@ -740,7 +740,7 @@ sequenceDiagram
     API ->> + AssetStore: getVersionHistoryPage(id, page, size)
     AssetStore -->> - API: PaginatedResults~AssetVersion~ (or 404)
     API ->> API:map to AssetVersionList {id, total, versions[]}
-    Note right of API: Each entry: version (1-based), createdAt,<br/>createdBy, status, isCurrent, changeComment
+    Note right of API: Each entry - version (1-based), createdAt, createdBy, status, isCurrent, changeComment
     API -->> - User:AssetVersionList
 ....
 
@@ -1018,7 +1018,7 @@ sequenceDiagram
     SchemaStore ->> SchemaStore:[Parse RDF — JSON-LD / RDF-XML / TTL]
     SchemaStore ->> + Filter:filterModel(model, "schema import")
     Filter -->> - SchemaStore:FilteredModel {model, warning}
-    Note right of Filter: Triples using fcmeta: namespace<br/>are removed; warning captured
+    Note right of Filter: Triples using fcmeta namespace are removed; warning captured
     SchemaStore ->> SchemaStore:[Detect Schema Type — SHAPE / ONTOLOGY / VOCABULARY]
     SchemaStore ->> SchemaStore:[Extract or Generate ID]
     SchemaStore ->> SchemaStore:[Extract defined URLs]
@@ -1026,7 +1026,7 @@ sequenceDiagram
     SchemaStore ->> SchemaStore:[Store Schema in DB]
     SchemaStore -->> - API:SchemaStoreResult {id, warning}
     API ->> API:[Convert to SchemaResult {id, warnings}]
-    Note right of API: Server layer maps core result<br/>to generated API model
+    Note right of API: Server layer maps core result to generated API model
     API -->> - User:SchemaResult {id, warnings}
 ....
 
@@ -1085,7 +1085,7 @@ sequenceDiagram
     SchemaStore ->> SchemaStore:[Parse RDF — JSON-LD / RDF-XML / TTL]
     SchemaStore ->> + Filter:filterModel(model, "schema import")
     Filter -->> - SchemaStore:FilteredModel {model, warning}
-    Note right of Filter: Triples using fcmeta: namespace<br/>are removed; warning captured
+    Note right of Filter: Triples using fcmeta namespace are removed; warning captured
     SchemaStore ->> SchemaStore:[Detect Schema Type — SHAPE / ONTOLOGY / VOCABULARY]
     SchemaStore ->> SchemaStore:[Extract or Generate ID]
     SchemaStore ->> SchemaStore:[Verify ID matches existing schema ID]
@@ -1223,7 +1223,7 @@ sequenceDiagram
     end
     VerificationService ->> VerificationService:[Extract Claims]
     VerificationService ->> VerificationService:[Filter Protected Namespace (fcmeta:)]
-    Note right of VerificationService: Filtered triples produce<br/>warnings in CredentialVerificationResult
+    Note right of VerificationService: Filtered triples produce warnings in CredentialVerificationResult
     VerificationService -->> - API:CredentialVerificationResult (incl. warnings)
     API -->> -User: CredentialVerificationResult (incl. warnings)
 ....
@@ -1249,7 +1249,7 @@ sequenceDiagram
         MetaData -->> AssetStore:existing row or NULL
         alt existing row found (update)
             AssetStore ->> MetaData:updateInPlace(fields, changeComment)
-            Note right of MetaData: Envers records previous<br/>state in assets_aud
+            Note right of MetaData: Envers records previous state in assets_aud
             MetaData -->> AssetStore:OK
             AssetStore ->> GraphDB:deleteClaims(credentialSubject)
         else no existing row (first upload)
