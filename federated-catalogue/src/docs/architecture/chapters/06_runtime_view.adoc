@@ -1047,7 +1047,7 @@ sequenceDiagram
     Auth -->> - User:OK
     User ->> + API:POST /schemas (Content-Type: application/schema+json or application/xml)
     API ->> API:[Detect non-RDF content type]
-    API ->> API:[Compute content hash → urn:schema:sha256:&lt;hash&gt;]
+    API ->> API:[Compute content hash → urn:schema:sha256:<hash>]
     API ->> + MetadataStore:Check for duplicate ID
     MetadataStore -->> - API:Not found
     API ->> + FileStore:Store raw file
