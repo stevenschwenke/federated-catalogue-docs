@@ -26,30 +26,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Chromium and Puppeteer dependencies
+      - name: Verify Chrome is installed
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            chromium-browser \
-            fonts-liberation \
-            libasound2 \
-            libatk-bridge2.0-0 \
-            libatk1.0-0 \
-            libatspi2.0-0 \
-            libcups2 \
-            libdbus-1-3 \
-            libdrm2 \
-            libgbm1 \
-            libgtk-3-0 \
-            libnspr4 \
-            libnss3 \
-            libwayland-client0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxfixes3 \
-            libxkbcommon0 \
-            libxrandr2 \
-            xdg-utils
+          which google-chrome || which google-chrome-stable || echo "Chrome not found"
+          google-chrome --version || google-chrome-stable --version || echo "Cannot run Chrome"
 
       - name: Install Mermaid CLI
         run: npm install -g @mermaid-js/mermaid-cli
@@ -66,10 +46,10 @@ jobs:
       - name: Test mmdc with simple diagram
         run: |
           echo 'graph TD; A-->B;' > test.mmd
-          PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser mmdc -i test.mmd -o test.png || echo "mmdc test failed"
+          CHROME_PATH=$(which google-chrome-stable || which google-chrome)
+          echo "Using Chrome at: $CHROME_PATH"
+          PUPPETEER_EXECUTABLE_PATH="$CHROME_PATH" mmdc -i test.mmd -o test.png || echo "mmdc test failed"
           ls -la test.* || true
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
 
       - name: Install docToolchain locally
         run: |
@@ -79,18 +59,16 @@ jobs:
       - name: Generate HTML Documentation
         run: |
           cd ./federated-catalogue
-          ./dtcw local generateHTML
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
-          PUPPETEER_ARGS: "--no-sandbox --disable-setuid-sandbox"
+          export CHROME_PATH=$(which google-chrome-stable || which google-chrome)
+          echo "Using Chrome at: $CHROME_PATH"
+          PUPPETEER_EXECUTABLE_PATH="$CHROME_PATH" ./dtcw local generateHTML
 
       - name: Generate PDF Documentation
         run: |
           cd ./federated-catalogue
-          ./dtcw local generatePDF
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
-          PUPPETEER_ARGS: "--no-sandbox --disable-setuid-sandbox"
+          export CHROME_PATH=$(which google-chrome-stable || which google-chrome)
+          echo "Using Chrome at: $CHROME_PATH"
+          PUPPETEER_EXECUTABLE_PATH="$CHROME_PATH" ./dtcw local generatePDF
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
