@@ -18,16 +18,22 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Mermaid CLI
         run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Verify Mermaid CLI installation
+        run: |
+          which mmdc
+          mmdc --version
+          echo "PATH=$PATH"
 
       - name: Generate HTML Documentation
         run: |
           cd ./federated-catalogue
           ./dtcw generateHTML
-      
+
       - name: Generate PDF Documentation
         run: |
           cd ./federated-catalogue
