@@ -14,7 +14,15 @@ jobs:
         uses: actions/checkout@v5
         with:
           lfs: true
-      
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Mermaid CLI
+        run: npm install -g @mermaid-js/mermaid-cli
+
       - name: Generate HTML Documentation
         run: |
           cd ./federated-catalogue
